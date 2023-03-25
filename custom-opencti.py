@@ -94,7 +94,6 @@ def simplify_objectlist(output, listKey, valueKey, newKey):
     edges = output[listKey]['edges']
     output[newKey] = [key[valueKey] for edge in edges for _, key in edge.items()]
     if newKey != listKey:
-        # Delete objectLabels (array of objects) now that we have just the names:
         del output[listKey]
 
 def send_event(msg, agent = None):
