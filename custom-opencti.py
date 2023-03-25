@@ -225,16 +225,13 @@ def query_opencti(alert, url, token):
         # Generate a link to the observable:
         alert_output['opencti']['observable_link'] = url.removesuffix('graphql') + 'dashboard/observations/observables/{0}'.format(node['id'])
 
-        # Extract URIs from external references (Wazuh doesn't support arrays of objects):
-        #refs = node['externalReferences']['edges']
-        #alert_output['opencti']['externalReferences'] = [ref['node']['url'] for ref in refs]
-        simplify_objectlist(alert_output['opencti'], listKey = 'externalReferences', valueKey = 'url', newKey = 'externalReferences')
-
         # Get rid of the hashes in the reply. We will use the hashes from the
         # source event instead (TODO: remove hashes from grapqhl query):
         if 'hashes' in alert_output['opencti']:
             del alert_output['opencti']['hashes']
 
+        # Extract URIs from external references:
+        simplify_objectlist(alert_output['opencti'], listKey = 'externalReferences', valueKey = 'url', newKey = 'externalReferences')
         # Convert list of file objects to list of file names:
         simplify_objectlist(alert_output['opencti'], listKey = 'importFiles', valueKey = 'name', newKey = 'importFiles')
         # Convert list of label objects to list of label names:
