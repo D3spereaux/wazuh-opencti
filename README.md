@@ -109,10 +109,12 @@ setting one up for *C:\\Users\\\*\Downloads*.
 During testing and development, it may be very useful to enable debug output
 from the integration. Debug output may be enabled in [internal
 options](https://documentation.wazuh.com/current/user-manual/reference/internal-options.html#integrator).
-The log is found in */var/ossec/logs/integrations.log*. If you're using docker
-docker, run `docker-compose exec wazuh.manager tail -f
-/var/ossec/logs/integrations.log`. If the log is empty, check the Wazuh manager
-log and ensure that the integration doesn't fail and return an exit value of 1.
+If you're using docker, add `integrator.debug = 1`to
+*local_internal_options.conf* in the *wazuh_etc* volume.  The log is found in
+*/var/ossec/logs/integrations.log*. If you're using docker docker, run
+`docker-compose exec wazuh.manager tail -f /var/ossec/logs/integrations.log`.
+If the log is empty, check the Wazuh manager log and ensure that the
+integration doesn't fail and return an exit value of 1.
 
 ### Event types / rule groups used to trigger OpenCTI API calls
 
