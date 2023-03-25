@@ -20,7 +20,7 @@ import ipaddress
 import re
 import traceback
 
-# Debug can be enabled by settings the internal configuration setting
+# Debug can be enabled by setting the internal configuration setting
 # intergration.debug to 1 or higher:
 debug_enabled = False
 null_string = 'null'
@@ -33,7 +33,9 @@ sha256_sysmon_event_regex = re.compile('sysmon_(?:(?:event_?|eid)(?:1|6|7|15|23|
 sysmon_event3_regex = re.compile('sysmon_(?:event|eid)3')
 # Match sysmon_event_22 and sysmon_eid22_detections:
 sysmon_event22_regex = re.compile('sysmon_(?:event_|eid)22')
+# Location of source events file:
 log_file = '{0}/logs/integrations.log'.format(pwd)
+# UNIX socket to send detections events to:
 socket_addr = '{0}/queue/sockets/queue'.format(pwd)
 
 def main(args):
