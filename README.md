@@ -5,9 +5,9 @@
 wazuh-opencti is a [Wazuh
 integration](https://documentation.wazuh.com/current/user-manual/manager/manual-integration.html)
 that looks up alert metadata in an
-[OpenCTI](https://documentation.wazuh.com/current/user-manual/manager/manual-integration.html)
-threat intel database. If the metadata is found in any STIX indicator, the
-integration will create a Wazuh alert with plenty of metadata from the OpenCTI
+[OpenCTI](https://www.filigran.io/en/products/opencti) threat intel database.
+If the metadata is found in any STIX indicator, the integration will create a
+Wazuh alert with plenty of metadata from the OpenCTI
 [observable](https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_p49j1fwoxldc)
 and
 [indicator](https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_muftrcpnf89v).
@@ -34,7 +34,7 @@ The integration will only inspect events whose *rule.groups* matches
 
 ## Installation
 
-Copy the two custom-opencti files into your Wazuh manager integrations
+Copy the two *custom-opencti* files into your Wazuh manager integrations
 directory, */var/ossec/integrations*. If you're using docker, this will be the
 root directory in the *wazuh_integrations* volume.
 
@@ -42,7 +42,7 @@ root directory in the *wazuh_integrations* volume.
 
 Modify your manager configuration file, */var/ossec/etc/ossec.conf*. If you're
 using docker, this will be the file *config/wazuh_cluster/wazuh_manager.conf*.
-Add an entry like the following in an `<ossec_config>` block:
+Add an entry like the following to an `<ossec_config>` block:
 
 ```xml
   <integration>
@@ -99,12 +99,12 @@ in your setup):
 ```
 
 In order to test that the integration works, create an observable in OpenCTI
-with a SHA256 hash that matches a file you will later move in Windows or Linux.
-Then create an indicator (wazuh-opencti only creates alerts if an observable
-has an indicator tied to it). Depending om your syscheck setup, put the file
-with the matching hash in a monitored directory and wait for the alert to be
-created. If you don't have a real-time syscheck setup yet, consider setting one
-up for *C:\\Users\\\*\Downloads*.
+with a SHA256 hash that matches a file you will later create or move in Windows
+or Linux.  Then create an indicator (wazuh-opencti only creates alerts if an
+observable has an indicator tied to it). Depending om your syscheck setup, put
+the file with the matching hash in a monitored directory and wait for the alert
+to be created. If you don't have a real-time syscheck setup yet, consider
+setting one up for *C:\\Users\\\*\Downloads*.
 
 During testing and development, it may be very useful to enable debug output
 from the integration. Debug output may be enabled in [internal
