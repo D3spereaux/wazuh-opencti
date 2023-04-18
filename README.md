@@ -47,7 +47,7 @@ Add an entry like the following to an `<ossec_config>` block:
 ```xml
   <integration>
      <name>custom-opencti</name>
-     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies</group>
+     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,sysmon_eid22_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies</group>
      <alert_format>json</alert_format>
      <api_key>REPLACE-ME-WITH-A-VALID-TOKEN</api_key>
      <hook_url>https://my.opencti.location/graphql</hook_url>
@@ -67,7 +67,21 @@ notice that **sysmon_eidX_detections** is used instead of **sysmon_eventX**.
 This is because Wazuh (at least as of 4.3.9) doesn't produce any sysmon\_eventX
 events. – Only specific *detections* events. Also note that 4.3.9 doesn't even
 have basic rules that cover all of the sysmon events. You may need to add rules
-for sysmon event 16–25. Event 23–25 is used by this integration.
+for sysmon event 16–25. Event 22–25 is used by this integration.
+
+Example rule for logging all DNS queries so that the queries can be looked up
+in OpenCTI:
+```xml
+<group name="sysmon,sysmon_eid22_detections,windows,">
+   <rule id="100140" level="3">
+      <if_sid>61650</if_sid>
+      <description>DNS query for $(win.eventdata.queryName)</description>
+   </rule>
+</group>
+```
+
+The sysmon 22 event also contains query results as a list of IP addresses, but
+these are not inspected by this integration.
 
 In order for Wazuh to create alerts when an IoC is found, a rule is needed.
 Rules for when the integration fails to operate are also highly recommended.
