@@ -69,8 +69,8 @@ events. – Only specific *detections* events. Also note that 4.3.9 doesn't even
 have basic rules that cover all of the sysmon events. You may need to add rules
 for sysmon event 16–25. Event 22–25 is used by this integration.
 
-Example rule for logging all DNS queries so that the queries can be looked up
-in OpenCTI:
+Example rule for logging all DNS queries so that the queries and their results
+can be looked up in OpenCTI:
 ```xml
 <group name="sysmon,sysmon_eid22_detections,windows,">
    <rule id="100140" level="3">
@@ -138,7 +138,7 @@ integration doesn't fail and return an exit value of 1.
  sysmon\_event6, sysmon\_eid6\_detections | win.eventdata.hashes |
  sysmon\_event7, sysmon\_eid7\_detections | win.eventdata.hashes |
  sysmon\_event\_15, sysmon\_eid15\_detections | win.eventdata.hashes |
- sysmon\_event\_22, sysmon\_eid22\_detections | win.eventdata.queryName |
+ sysmon\_event\_22, sysmon\_eid22\_detections | win.eventdata.queryName, win.eventdata.queryResults |
  sysmon\_event\_23, sysmon\_eid23\_detections | win.eventdata.hashes |
  sysmon\_event\_24, sysmon\_eid24\_detections | win.eventdata.hashes |
  sysmon\_event\_25, sysmon\_eid25\_detections | win.eventdata.hashes |

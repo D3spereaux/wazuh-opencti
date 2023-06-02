@@ -37,6 +37,10 @@ sysmon_event22_regex = re.compile('sysmon_(?:event_|eid)22')
 log_file = '{0}/logs/integrations.log'.format(pwd)
 # UNIX socket to send detections events to:
 socket_addr = '{0}/queue/sockets/queue'.format(pwd)
+# Find ";"-separated entries that are not prefixed with "type: X ". In order to
+# avoid non-fixed-width look-behind, match against the unwanted prefix, but
+# only group the match we care about, and filter out the empty strings later:
+dns_results_regex = re.compile(r'type:\s*\d+\s*[^;]+|([^\s;]+)')
 
 def main(args):
     debug('# Starting')
@@ -99,6 +103,26 @@ def simplify_objectlist(output, listKey, valueKey, newKey):
         # Delete objectLabels (array of objects) now that we have just the names:
         del output[listKey]
 
+# Take a string, like
+# "type:  5 youtube-ui.l.google.com;::ffff:142.250.74.174;::ffff:216.58.207.206;::ffff:172.217.21.174;::ffff:142.250.74.46;::ffff:142.250.74.110;::ffff:142.250.74.78;::ffff:216.58.207.238;::ffff:142.250.74.142;",
+# discard records other than A/AAAA, ignore non-global addresses, and convert
+# IPv4-mapped IPv6 to IPv4:
+def format_dns_results(results):
+    def unmap_ipv6(addr):
+        if type(addr) is ipaddress.IPv4Address:
+            return addr
+
+        v4 = addr.ipv4_mapped
+        return v4 if v4 else addr
+
+    try:
+        # Extract only A/AAAA records (and discard the empty strings):
+        results = list(filter(len, dns_results_regex.findall(results)))
+        # Convert IPv4-mapped IPv6 to IPv4:
+        return list(map(lambda x: unmap_ipv6(ipaddress.ip_address(x)).exploded, results))
+    except ValueError:
+        return []
+
 def send_event(msg, agent = None):
     if not agent or agent['id'] == '000':
         string = '1:opencti:{0}'.format(json.dumps(msg))
@@ -134,34 +158,37 @@ def query_opencti(alert, url, token):
             # present in the metadata. Quit if no hash is found:
             match = regex_file_hash.search(alert['data']['win']['eventdata']['hashes'])
             if match:
-                filter_value = match.group(0)
+                filter_values = [match.group(0)]
             else:
                 sys.exit()
         # Sysmon event 3 contains IP addresses, which will be queried:
         elif any(True for _ in filter(sysmon_event3_regex.match, groups)):
-            filter_value = alert['data']['win']['eventdata']['destinationIp']
-            if not ipaddress.ip_address(filter_value).is_global:
+            filter_values = [alert['data']['win']['eventdata']['destinationIp']]
+            if not ipaddress.ip_address(filter_values[0]).is_global:
                 sys.exit()
         # Group 'ids' may contain IP addresses.
         # This may be tailored for suricata, but we'll match against the "ids"
         # group. These keys are probably used by other decoders as well:
         elif 'ids' in groups:
             # Look up either dest or source IP, whichever is public:
-            filter_value = next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)
-            if not filter_value:
+            filter_values = [next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)]
+            if not filter_values:
                 sys.exit()
-        # Look up domain names in DNS queries (sysmon event 22):
+        # Look up domain names in DNS queries (sysmon event 22), along with the
+        # results (if they're IPv4/IPv6 addresses (A/AAAA records)):
         elif any(True for _ in filter(sysmon_event22_regex.match, groups)):
-            filter_value = alert['data']['win']['eventdata']['queryName']
+            query = alert['data']['win']['eventdata']['queryName']
+            results = format_dns_results(alert['data']['win']['eventdata']['queryResults'])
+            filter_values = [query] + results
         # Look up sha256 hashes for files added to the system or files that have been modified:
         elif 'syscheck_file' in groups and any(x in groups for x in ['syscheck_entry_added', 'syscheck_entry_modified']):
             filter_key = 'hashes_SHA256'
-            filter_value = alert['syscheck']['sha256_after']
+            filter_values = [alert['syscheck']['sha256_after']]
         # Look up sha256 hashes in columns of any osqueries:
         # Currently, only osquery_file is defined in wazuh_manager.conf, but add 'osquery' for future use(?):
         elif any(x in groups for x in ['osquery', 'osquery_file']):
             filter_key = 'hashes_SHA256'
-            filter_value = alert['data']['osquery']['columns']['sha256']
+            filter_values = [alert['data']['osquery']['columns']['sha256']]
         # Nothing to do:
         else:
             sys.exit()
@@ -181,7 +208,7 @@ def query_opencti(alert, url, token):
     # Look for hashes, addresses and domain names is as many places as
     # possible, and return as much information as possible. Note that more data
     # is queried than is currently used. This should be removed:
-    api_json_body={'query': 'query StixCyberObservables($types: [String] $filters: [StixCyberObservablesFiltering] $search: String $first: Int $after: ID $orderBy: StixCyberObservablesOrdering $orderMode: OrderingMode) {stixCyberObservables(types: $types filters: $filters search: $search first: $first after: $after orderBy: $orderBy orderMode: $orderMode) {edges {node {id created_at updated_at createdBy {... on Identity {id standard_id identity_class name} ... on Organization {x_opencti_organization_type x_opencti_reliability} ... on Individual {x_opencti_firstname x_opencti_lastname}} objectLabel {edges {node {value}}} externalReferences {edges {node {source_name url}}} observable_value x_opencti_description x_opencti_score indicators {edges {node {id valid_until revoked confidence x_opencti_score x_opencti_detection indicator_types x_mitre_platforms objectLabel {edges {node {value}}} killChainPhases{edges {node {kill_chain_name}}}}}} ... on AutonomousSystem {number name rir} ... on Directory {path} ... on DomainName {value} ... on EmailAddr {value display_name} ... on EmailMessage {message_id subject body} ... on Artifact {mime_type payload_bin url encryption_algorithm decryption_key hashes {algorithm hash} importFiles {edges {node {name size}}}} ... on StixFile {extensions size name x_opencti_additional_names hashes {algorithm hash}} ... on X509Certificate {is_self_signed serial_number signature_algorithm issuer subject validity_not_before validity_not_after hashes {algorithm hash}} ... on IPv4Addr {value} ... on IPv6Addr {value} ... on MacAddr {value} ... on Mutex {name} ... on NetworkTraffic {extensions start end is_active src_port dst_port protocols src_byte_count dst_byte_count src_packets dst_packets} ... on Process {extensions is_hidden pid created_time cwd command_line environment_variables} ... on Software {name cpe swid languages vendor version} ... on Url {value} ... on UserAccount {extensions user_id credential account_login account_type display_name is_service_account is_privileged can_escalate_privs is_disabled account_created account_expires credential_last_changed account_first_login account_last_login} ... on WindowsRegistryKey {attribute_key modified_time number_of_subkeys} ... on WindowsRegistryValueType {name data data_type} ... on X509Certificate {basic_constraints name_constraints policy_constraints key_usage extended_key_usage subject_key_identifier authority_key_identifier subject_alternative_name issuer_alternative_name subject_directory_attributes crl_distribution_points inhibit_any_policy private_key_usage_period_not_before private_key_usage_period_not_after certificate_policies policy_mappings} ... on CryptographicKey {value} ... on CryptocurrencyWallet {value} ... on Hostname {value} ... on Text {value} ... on UserAgent {value} importFiles {edges {node {name size}}}}} pageInfo {startCursor endCursor hasNextPage hasPreviousPage globalCount}}}' , 'variables': {'types': null_string, 'filters': [{'key': f'{filter_key}', 'values': [f'{filter_value}']}]}}
+    api_json_body={'query': 'query StixCyberObservables($types: [String] $filters: [StixCyberObservablesFiltering] $search: String $first: Int $after: ID $orderBy: StixCyberObservablesOrdering $orderMode: OrderingMode) {stixCyberObservables(types: $types filters: $filters search: $search first: $first after: $after orderBy: $orderBy orderMode: $orderMode) {edges {node {id created_at updated_at createdBy {... on Identity {id standard_id identity_class name} ... on Organization {x_opencti_organization_type x_opencti_reliability} ... on Individual {x_opencti_firstname x_opencti_lastname}} objectLabel {edges {node {value}}} externalReferences {edges {node {source_name url}}} observable_value x_opencti_description x_opencti_score indicators {edges {node {id valid_until revoked confidence x_opencti_score x_opencti_detection indicator_types x_mitre_platforms objectLabel {edges {node {value}}} killChainPhases{edges {node {kill_chain_name}}}}}} ... on AutonomousSystem {number name rir} ... on Directory {path} ... on DomainName {value} ... on EmailAddr {value display_name} ... on EmailMessage {message_id subject body} ... on Artifact {mime_type payload_bin url encryption_algorithm decryption_key hashes {algorithm hash} importFiles {edges {node {name size}}}} ... on StixFile {extensions size name x_opencti_additional_names hashes {algorithm hash}} ... on X509Certificate {is_self_signed serial_number signature_algorithm issuer subject validity_not_before validity_not_after hashes {algorithm hash}} ... on IPv4Addr {value} ... on IPv6Addr {value} ... on MacAddr {value} ... on Mutex {name} ... on NetworkTraffic {extensions start end is_active src_port dst_port protocols src_byte_count dst_byte_count src_packets dst_packets} ... on Process {extensions is_hidden pid created_time cwd command_line environment_variables} ... on Software {name cpe swid languages vendor version} ... on Url {value} ... on UserAccount {extensions user_id credential account_login account_type display_name is_service_account is_privileged can_escalate_privs is_disabled account_created account_expires credential_last_changed account_first_login account_last_login} ... on WindowsRegistryKey {attribute_key modified_time number_of_subkeys} ... on WindowsRegistryValueType {name data data_type} ... on X509Certificate {basic_constraints name_constraints policy_constraints key_usage extended_key_usage subject_key_identifier authority_key_identifier subject_alternative_name issuer_alternative_name subject_directory_attributes crl_distribution_points inhibit_any_policy private_key_usage_period_not_before private_key_usage_period_not_after certificate_policies policy_mappings} ... on CryptographicKey {value} ... on CryptocurrencyWallet {value} ... on Hostname {value} ... on Text {value} ... on UserAgent {value} importFiles {edges {node {name size}}}}} pageInfo {startCursor endCursor hasNextPage hasPreviousPage globalCount}}}' , 'variables': {'types': null_string, 'filters': [{'key': f'{filter_key}', 'values': filter_values}]}}
     debug('# Query:')
     debug(api_json_body)
 
