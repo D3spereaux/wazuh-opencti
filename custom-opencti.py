@@ -21,7 +21,7 @@ import re
 import traceback
 
 # Debug can be enabled by setting the internal configuration setting
-# intergration.debug to 1 or higher:
+# integration.debug to 1 or higher:
 debug_enabled = False
 null_string = 'null'
 pwd = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -90,7 +90,7 @@ def remove_empties(value):
     else:
         return value
 
-# Given an object 'output' with ha list of objects (edges and noodes) at key
+# Given an object 'output' with ha list of objects (edges and nodes) at key
 # 'listKey', create a new list at key 'newKey' with just values from the
 # original list's objects at key 'valueKey'. Example: 
 # {'objectLabel': {'edges': [{'node': {'value': 'cryptbot'}}, {'node': {'value': 'exe'}}]}}
