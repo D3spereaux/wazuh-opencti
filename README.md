@@ -80,9 +80,6 @@ can be looked up in OpenCTI:
 </group>
 ```
 
-The sysmon 22 event also contains query results as a list of IP addresses, but
-these are not inspected by this integration.
-
 In order for Wazuh to create alerts when an IoC is found, a rule is needed.
 Rules for when the integration fails to operate are also highly recommended.
 Here is an example rule set (be sure to replace the rule IDs to avoid conflicts
