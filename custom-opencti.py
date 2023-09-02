@@ -20,11 +20,15 @@ import ipaddress
 import re
 import traceback
 
+# Maximum number of alerts to create for indicators found per query:
+max_ind_alerts = 3
+# Maximum number of alerts to create for observables found per query:
+max_obs_alerts = 3
 # Debug can be enabled by setting the internal configuration setting
 # integration.debug to 1 or higher:
 debug_enabled = False
-null_string = 'null'
 pwd = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+url = ''
 # Match SHA256:
 regex_file_hash = re.compile('[A-Fa-f0-9]{64}')
 # Match sysmon_eventX, sysmon_event_XX, systemon_eidX(X)_detections, and sysmon_process-anomalies:
@@ -43,6 +47,7 @@ socket_addr = '{0}/queue/sockets/queue'.format(pwd)
 dns_results_regex = re.compile(r'type:\s*\d+\s*[^;]+|([^\s;]+)')
 
 def main(args):
+    global url
     debug('# Starting')
     alert_path = args[1]
     # Documentation says to do args[2].split(':')[1], but this is incorrect:
@@ -58,10 +63,8 @@ def main(args):
     debug('# Processing alert:')
     debug(alert)
 
-    info = query_opencti(alert, url, token)
-
-    if info:
-        send_event(info, alert['agent'])
+    for new_alert in query_opencti(alert, url, token):
+        send_event(new_alert, alert['agent'])
 
 def debug(msg, do_log = False):
     do_log |= debug_enabled
@@ -90,7 +93,7 @@ def remove_empties(value):
     else:
         return value
 
-# Given an object 'output' with ha list of objects (edges and nodes) at key
+# Given an object 'output' with a list of objects (edges and nodes) at key
 # 'listKey', create a new list at key 'newKey' with just values from the
 # original list's objects at key 'valueKey'. Example: 
 # {'objectLabel': {'edges': [{'node': {'value': 'cryptbot'}}, {'node': {'value': 'exe'}}]}}
@@ -123,6 +126,127 @@ def format_dns_results(results):
     except ValueError:
         return []
 
+# Determine whether alert contains a packetbeat DNS query:
+def packetbeat_dns(alert):
+    return all(key in alert['data'] for key in ('method', 'dns')) and alert['data']['method'] == 'QUERY'
+
+# For every object in dns.answers, retrieve "data", but only if "type" is
+# A/AAAA and the resulting address is a global IP address:
+def filter_packetbeat_dns(results):
+    return [r['data'] for r in results if (r['type'] == 'A' or r['type'] == 'AAAA') and ipaddress.ip_address(r['data']).is_global]
+
+# Sort indicators based on
+#  - Whether it is not revoked
+#  - Whether the indicator has "detection"
+#  - Score (the higher the better)
+#  - Confidence (the higher the better)
+#  - valid_until is before now():
+def indicator_sort_func(x):
+    return (x['revoked'], not x['x_opencti_detection'], -x['x_opencti_score'], -x['confidence'], datetime.strptime(x['valid_until'], '%Y-%m-%dT%H:%M:%S.%fZ') <= datetime.now())
+
+def sort_indicators(indicators):
+    # In case there are several indicators, and since we will only extract
+    # one, sort them based on !revoked, detection, score, confidence and
+    # lastly expiry:
+    return sorted(indicators, key=indicator_sort_func)
+
+# Modify the indicator object so that it is more fit for opensearch (simplify
+# deeply-nested lists etc.):
+def modify_indicator(indicator):
+    if indicator:
+        # Simplify object lists for indicator labels and kill chain phases:
+        simplify_objectlist(indicator, listKey = 'objectLabel', valueKey = 'value', newKey = 'labels')
+        simplify_objectlist(indicator, listKey = 'killChainPhases', valueKey = 'kill_chain_name', newKey = 'killChainPhases')
+        if 'externalReferences' in indicator:
+            # Extract URIs from external references:
+            simplify_objectlist(indicator, listKey = 'externalReferences', valueKey = 'url', newKey = 'externalReferences')
+
+    return indicator
+
+def indicator_link(indicator):
+    return url.removesuffix('graphql') + 'dashboard/observations/indicators/{0}'.format(indicator['id'])
+
+# Modify the observable object so that it is more fit for opensearch (simplify
+# deeply-nested lists etc.):
+def modify_observable(observable, indicators):
+    # Generate a link to the observable:
+    observable['observable_link'] = url.removesuffix('graphql') + 'dashboard/observations/observables/{0}'.format(observable['id'])
+
+    # Extract URIs from external references:
+    simplify_objectlist(observable, listKey = 'externalReferences', valueKey = 'url', newKey = 'externalReferences')
+    # Convert list of file objects to list of file names:
+    #simplify_objectlist(observable, listKey = 'importFiles', valueKey = 'name', newKey = 'importFiles')
+    # Convert list of label objects to list of label names:
+    simplify_objectlist(observable, listKey = 'objectLabel', valueKey = 'value', newKey = 'labels')
+
+    # Grab the first indicator (already sorted to get the most relevant one):
+    observable['indicator'] = next(iter(indicators), None)
+    # Indicate in the alert that there were multiple indicators:
+    observable['multipleIndicators'] = len(indicators) > 1
+    # Generate a link to the indicator:
+    if observable['indicator']:
+        observable['indicator_link'] = indicator_link(observable['indicator'])
+
+    modify_indicator(observable['indicator'])
+    # Remove the original list of objects:
+    del observable['indicators']
+    # Remove the original list of relationships:
+    del observable['stixCoreRelationships']
+
+# Domain name–IP address releationships are not always up to date in a CTI
+# database (naturally). If a DNS enrichment connector is used to create
+# "resolves-to" relationship (or "related-to"), it may be worth looking up
+# relationships to the observable, and if these objects have indicators, create
+# an alert:
+def relationship_with_indicators(node):
+    related = []
+    try:
+        for relationship in node['stixCoreRelationships']['edges']:
+            if relationship['node']['related']['indicators']['edges']:
+                related.append(dict(
+                    id=relationship['node']['related']['id'],
+                    type=relationship['node']['type'],
+                    value=relationship['node']['related']['value'],
+                    # Create a list of the individual node objects in indicator edges:
+                    indicator = modify_indicator(next(iter(sort_indicators(list(map(lambda x:x['node'], relationship['node']['related']['indicators']['edges'])))), None)),
+                    multipleIndicators = len(relationship['node']['related']['indicators']['edges']) > 1,
+                    ))
+                if related[-1]['indicator']:
+                    related[-1]['indicator_link'] = indicator_link(related[-1]['indicator'])
+    except KeyError:
+        pass
+
+    return next(iter(sorted(related, key=lambda x:indicator_sort_func(x['indicator']))), None)
+
+def add_context(source_event, event):
+    # Add source information to the original alert (naming convention
+    # from official VirusTotal integration):
+    event['opencti']['source'] = {}
+    event['opencti']['source']['alert_id'] = source_event['id']
+    if 'syscheck' in source_event:
+        event['opencti']['source']['file'] = source_event['syscheck']['path']
+        event['opencti']['source']['md5'] = source_event['syscheck']['md5_after']
+        event['opencti']['source']['sha1'] = source_event['syscheck']['sha1_after']
+        event['opencti']['source']['sha256'] = source_event['syscheck']['sha256_after']
+    if 'data' in source_event:
+        for key in ['in_iface', 'src_ip', 'src_mac', 'src_port', 'dest_ip', 'dst_mac', 'dest_port', 'proto', 'app_proto']:
+            if key in source_event['data']:
+                event['opencti']['source'][key] = source_event['data'][key]
+        if packetbeat_dns(source_event):
+            event['opencti']['source']['queryName'] = source_event['data']['dns']['question']['name']
+            if 'answers' in source_event['data']['dns']:
+                event['opencti']['source']['queryResults'] = ';'.join(map(lambda x:x['data'], source_event['data']['dns']['answers']))
+        if 'alert' in source_event['data']:
+            event['opencti']['source']['source_event'] = {}
+            for key in ['action', 'category', 'signature', 'signature_id']:
+                if key in source_event['data']['alert']:
+                    event['opencti']['source']['alert'][key] = source_event['data']['alert'][key]
+        if 'win' in source_event['data']:
+            if 'eventdata' in source_event['data']['win']:
+                for key in ['queryName', 'queryResults', 'image']:
+                    if key in source_event['data']['win']['eventdata']:
+                        event['opencti']['source'][key] = source_event['data']['win']['eventdata'][key]
+
 def send_event(msg, agent = None):
     if not agent or agent['id'] == '000':
         string = '1:opencti:{0}'.format(json.dumps(msg))
@@ -137,7 +261,17 @@ def send_event(msg, agent = None):
     sock.close()
 
 def send_error_event(msg, agent = None):
-    send_event({'integration': 'opencti', 'opencti': {'error': msg}}, agent)
+    send_event({'integration': 'opencti', 'opencti': {
+        'error': msg,
+        'event_type': 'error',
+        }}, agent)
+
+# Construct a stix pattern for a single IP address, either IPv4 or IPv6:
+def ind_ip_pattern(string):
+    if ipaddress.ip_address(string).version == 6:
+        return f"[ipv6-addr:value = '{string}']"
+    else:
+        return f"[ipv4-addr:value = '{string}']"
 
 def query_opencti(alert, url, token):
     # The OpenCTI graphql query is filtering on a key and a list of values. By
@@ -159,19 +293,28 @@ def query_opencti(alert, url, token):
             match = regex_file_hash.search(alert['data']['win']['eventdata']['hashes'])
             if match:
                 filter_values = [match.group(0)]
+                ind_filter = [f"[file:hashes.'SHA-256' = '{match.group(0)}']"]
             else:
                 sys.exit()
         # Sysmon event 3 contains IP addresses, which will be queried:
         elif any(True for _ in filter(sysmon_event3_regex.match, groups)):
             filter_values = [alert['data']['win']['eventdata']['destinationIp']]
+            ind_filter = [ind_ip_pattern(filter_values[0])]
             if not ipaddress.ip_address(filter_values[0]).is_global:
                 sys.exit()
         # Group 'ids' may contain IP addresses.
         # This may be tailored for suricata, but we'll match against the "ids"
         # group. These keys are probably used by other decoders as well:
         elif 'ids' in groups:
-            # Look up either dest or source IP, whichever is public:
-            filter_values = [next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)]
+            # If data contains dns, it may contain a DNS query from packetbeat:
+            if packetbeat_dns(alert):
+                addrs = filter_packetbeat_dns(alert['data']['dns']['answers']) if 'answers' in alert['data']['dns'] else []
+                filter_values = [alert['data']['dns']['question']['name']] + addrs
+                ind_filter = [f"[domain-name:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), addrs))
+            else:
+                # Look up either dest or source IP, whichever is public:
+                filter_values = [next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)]
+                ind_filter = [ind_ip_pattern(filter_values[0])] if filter_values else None
             if not filter_values:
                 sys.exit()
         # Look up domain names in DNS queries (sysmon event 22), along with the
@@ -180,15 +323,18 @@ def query_opencti(alert, url, token):
             query = alert['data']['win']['eventdata']['queryName']
             results = format_dns_results(alert['data']['win']['eventdata']['queryResults'])
             filter_values = [query] + results
+            ind_filter = [f"[domain-name:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), results))
         # Look up sha256 hashes for files added to the system or files that have been modified:
         elif 'syscheck_file' in groups and any(x in groups for x in ['syscheck_entry_added', 'syscheck_entry_modified']):
             filter_key = 'hashes_SHA256'
             filter_values = [alert['syscheck']['sha256_after']]
+            ind_filter = [f"[file:hashes.'SHA-256' = '{filter_values[0]}']"]
         # Look up sha256 hashes in columns of any osqueries:
         # Currently, only osquery_file is defined in wazuh_manager.conf, but add 'osquery' for future use(?):
         elif any(x in groups for x in ['osquery', 'osquery_file']):
             filter_key = 'hashes_SHA256'
             filter_values = [alert['data']['osquery']['columns']['sha256']]
+            ind_filter = [f"[file:hashes.'SHA-256' = '{filter_values[0]}']"]
         # Nothing to do:
         else:
             sys.exit()
@@ -206,13 +352,204 @@ def query_opencti(alert, url, token):
         'Accept': '*/*'
     }
     # Look for hashes, addresses and domain names is as many places as
-    # possible, and return as much information as possible. Note that more data
-    # is queried than is currently used. This should be removed:
-    api_json_body={'query': 'query StixCyberObservables($types: [String] $filters: [StixCyberObservablesFiltering] $search: String $first: Int $after: ID $orderBy: StixCyberObservablesOrdering $orderMode: OrderingMode) {stixCyberObservables(types: $types filters: $filters search: $search first: $first after: $after orderBy: $orderBy orderMode: $orderMode) {edges {node {id created_at updated_at createdBy {... on Identity {id standard_id identity_class name} ... on Organization {x_opencti_organization_type x_opencti_reliability} ... on Individual {x_opencti_firstname x_opencti_lastname}} objectLabel {edges {node {value}}} externalReferences {edges {node {source_name url}}} observable_value x_opencti_description x_opencti_score indicators {edges {node {id valid_until revoked confidence x_opencti_score x_opencti_detection indicator_types x_mitre_platforms objectLabel {edges {node {value}}} killChainPhases{edges {node {kill_chain_name}}}}}} ... on AutonomousSystem {number name rir} ... on Directory {path} ... on DomainName {value} ... on EmailAddr {value display_name} ... on EmailMessage {message_id subject body} ... on Artifact {mime_type payload_bin url encryption_algorithm decryption_key hashes {algorithm hash} importFiles {edges {node {name size}}}} ... on StixFile {extensions size name x_opencti_additional_names hashes {algorithm hash}} ... on X509Certificate {is_self_signed serial_number signature_algorithm issuer subject validity_not_before validity_not_after hashes {algorithm hash}} ... on IPv4Addr {value} ... on IPv6Addr {value} ... on MacAddr {value} ... on Mutex {name} ... on NetworkTraffic {extensions start end is_active src_port dst_port protocols src_byte_count dst_byte_count src_packets dst_packets} ... on Process {extensions is_hidden pid created_time cwd command_line environment_variables} ... on Software {name cpe swid languages vendor version} ... on Url {value} ... on UserAccount {extensions user_id credential account_login account_type display_name is_service_account is_privileged can_escalate_privs is_disabled account_created account_expires credential_last_changed account_first_login account_last_login} ... on WindowsRegistryKey {attribute_key modified_time number_of_subkeys} ... on WindowsRegistryValueType {name data data_type} ... on X509Certificate {basic_constraints name_constraints policy_constraints key_usage extended_key_usage subject_key_identifier authority_key_identifier subject_alternative_name issuer_alternative_name subject_directory_attributes crl_distribution_points inhibit_any_policy private_key_usage_period_not_before private_key_usage_period_not_after certificate_policies policy_mappings} ... on CryptographicKey {value} ... on CryptocurrencyWallet {value} ... on Hostname {value} ... on Text {value} ... on UserAgent {value} importFiles {edges {node {name size}}}}} pageInfo {startCursor endCursor hasNextPage hasPreviousPage globalCount}}}' , 'variables': {'types': null_string, 'filters': [{'key': f'{filter_key}', 'values': filter_values}]}}
-    debug('# Query:')
-    debug(api_json_body)
+    # possible, and return as much information as possible.
+    api_json_body={'query':
+            '''
+            fragment Labels on StixCoreObject {
+              objectLabel {
+                edges {
+                  node {
+                    value
+                  }
+                }
+              }
+            }
 
-    alert_output = {}
+            fragment Object on StixCoreObject {
+              id
+              created_at
+              updated_at
+              createdBy {
+                ... on Identity {
+                  id
+                  standard_id
+                  identity_class
+                  name
+                }
+                ... on Organization {
+                  x_opencti_organization_type
+                  x_opencti_reliability
+                }
+                ... on Individual {
+                  x_opencti_firstname
+                  x_opencti_lastname
+                }
+              }
+              ...Labels
+              externalReferences {
+                edges {
+                  node {
+                    source_name
+                    url
+                  }
+                }
+              }
+            }
+
+            fragment IndShort on Indicator {
+              id
+              name
+              valid_until
+              revoked
+              confidence
+              x_opencti_score
+              x_opencti_detection
+              indicator_types
+              x_mitre_platforms
+              pattern_type
+              pattern
+              ...Labels
+              killChainPhases {
+                edges {
+                  node {
+                    kill_chain_name
+                  }
+                }
+              }
+            }
+
+            fragment IndLong on Indicator {
+              ...Object
+              ...IndShort
+            }
+
+            fragment Indicators on StixCyberObservable {
+              indicators {
+                edges {
+                  node {
+                    ...IndShort
+                  }
+                }
+              }
+            }
+
+            fragment PageInfo on PageInfo {
+              startCursor
+              endCursor
+              hasNextPage
+              hasPreviousPage
+              globalCount
+            }
+
+            query IoCs($obs: [StixCyberObservablesFiltering], $ind: [IndicatorsFiltering]) {
+              indicators(filters: $ind, first: 10) {
+                edges {
+                  node {
+                    ...IndLong
+                  }
+                }
+                pageInfo {
+                  ...PageInfo
+                }
+              }
+
+              stixCyberObservables(filters: $obs, first: 10) {
+                edges {
+                  node {
+                    ...Object
+                    entity_type
+                    observable_value
+                    x_opencti_description
+                    x_opencti_score
+                    ...Indicators
+                    ... on DomainName {
+                      value
+                      stixCoreRelationships(toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name"]) {
+                        edges {
+                          node {
+                            type: toType
+                            related: to {
+                              ... on IPv4Addr {
+                                id
+                                value
+                                ...Indicators
+                              }
+                              ... on IPv6Addr {
+                                id
+                                value
+                                ...Indicators
+                              }
+                              ... on DomainName {
+                                id
+                                value
+                                ...Indicators
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on IPv4Addr {
+                      value
+                      stixCoreRelationships(fromTypes: ["Domain-Name"]) {
+                        edges {
+                          node {
+                            type: fromType
+                            related: from {
+                              ... on DomainName {
+                                id
+                                value
+                                ...Indicators
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on IPv6Addr {
+                      value
+                      stixCoreRelationships(fromTypes: ["Domain-Name"]) {
+                        edges {
+                          node {
+                            type: fromType
+                            related: from {
+                              ... on DomainName {
+                                id
+                                value
+                                ...Indicators
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on Hostname {
+                      value
+                    }
+                    ... on StixFile {
+                      extensions
+                      size
+                      name
+                      x_opencti_additional_names
+                    }
+                  }
+                }
+                pageInfo {
+                  ...PageInfo
+                }
+              }
+            }
+            ''' , 'variables': {
+                    'obs': [{'key': filter_key, 'values': filter_values}],
+                    'ind': [
+                        {'key': 'pattern_type', 'values': ['stix']},
+                        {'key': 'pattern', 'values': ind_filter},
+                        ]
+                    }}
+    #debug('# Query:')
+    #debug(api_json_body)
+
+    new_alerts = []
     try:
         response = requests.post(url, headers=query_headers, json=api_json_body)
     # Create an alert if the OpenCTI service cannot be reached:
@@ -233,75 +570,61 @@ def query_opencti(alert, url, token):
     debug('# Response:')
     debug(response)
 
-    # TODO: Do something if pageInfo says there is more data to fetch, either
-    # fetch or create an error event (there should never be that many results?)
+    # Sort indicators based on a number of factors in order to prioritise them
+    # in case many are returned:
+    direct_indicators = sorted(
+            # Extract the indicator objects (nodes) from the indicator list in
+            # the response:
+            list(map(lambda x:x['node'], response['data']['indicators']['edges'])),
+            key=indicator_sort_func)
+    # As opposed to indicators for observables, create an alert for every
+    # indicator (limited by max_ind_alerts and the fixed limit in the query
+    # (see "first: X")):
+    for indicator in direct_indicators[:max_ind_alerts]:
+        new_alert = {'integration': 'opencti', 'opencti': {
+            'indicator': modify_indicator(indicator),
+            'indicator_link': indicator_link(indicator),
+            'query_key': filter_key,
+            'query_values': ';'.join(ind_filter),
+            'event_type': 'indicator_pattern_match',
+            }}
+        add_context(alert, new_alert)
+        new_alerts.append(remove_empties(new_alert))
+
     for edge in response['data']['stixCyberObservables']['edges']:
         node = edge['node']
 
         # Create a list of the individual node objects in indicator edges:
-        indicators = list(map(lambda x:x['node'], node['indicators']['edges']))
+        indicators = sort_indicators(list(map(lambda x:x['node'], node['indicators']['edges'])))
+        # Get related obsverables (typically between IP addresses and domain
+        # names) if they have indicators (retrieve only one indicator):
+        related_obs_w_ind = relationship_with_indicators(node)
+
+        # Remove indicators already found directly in the indicator query:
+        if indicators:
+            indicators = [i for i in indicators if i['id'] not in [di['id'] for di in direct_indicators]]
+        if related_obs_w_ind and related_obs_w_ind['indicator']['id'] in [di['id'] for di in direct_indicators]:
+            related_obs_w_ind = None
+
         # If the observable has no indicators, ignore it:
-        if not indicators:
+        if not indicators and not related_obs_w_ind:
+            # TODO: Create event for this?
             debug(f'# Observable found ({node["id"]}), but it has no indicators')
             continue
 
-        # Generate alert output from OpenCTI Response. Some of the values will
-        # be modified below (in particular, Wazuh/Opensearch doesn't like
-        # arrays of objects):
-        alert_output['integration'] = 'opencti'
-        alert_output['opencti'] = edge['node']
+        new_alert = {'integration': 'opencti', 'opencti': edge['node']}
+        new_alert['opencti']['related'] = related_obs_w_ind
+        new_alert['opencti']['query_key'] = filter_key
+        new_alert['opencti']['query_values'] = ';'.join(filter_values)
+        new_alert['opencti']['event_type'] = 'observable_with_indicator' if indicators else 'observable_with_related_indicator'
 
-        # Generate a link to the observable:
-        alert_output['opencti']['observable_link'] = url.removesuffix('graphql') + 'dashboard/observations/observables/{0}'.format(node['id'])
+        modify_observable(new_alert['opencti'], indicators)
 
-        # Get rid of the hashes in the reply. We will use the hashes from the
-        # source event instead (TODO: remove hashes from grapqhl query):
-        if 'hashes' in alert_output['opencti']:
-            del alert_output['opencti']['hashes']
+        add_context(alert, new_alert)
+        # Remove all nulls, empty lists and objects, and empty strings:
+        new_alerts.append(remove_empties(new_alert))
 
-        # Extract URIs from external references:
-        simplify_objectlist(alert_output['opencti'], listKey = 'externalReferences', valueKey = 'url', newKey = 'externalReferences')
-        # Convert list of file objects to list of file names:
-        simplify_objectlist(alert_output['opencti'], listKey = 'importFiles', valueKey = 'name', newKey = 'importFiles')
-        # Convert list of label objects to list of label names:
-        simplify_objectlist(alert_output['opencti'], listKey = 'objectLabel', valueKey = 'value', newKey = 'labels')
-
-        # In case there are several indicators, and since we will only extract
-        # one, sort them based on !revoked, score, confidence and lastly
-        # expiry:
-        indicators = sorted(indicators, key=lambda x: (x['revoked'], -x['x_opencti_score'], -x['confidence'], datetime.strptime(x['valid_until'], '%Y-%m-%dT%H:%M:%S.%fZ') <= datetime.now()))
-        alert_output['opencti']['indicator'] = indicators[0]
-        # Indicate in the alert that there were multiple indicators:
-        alert_output['opencti']['multipleIndicators'] = len(indicators) > 1
-        # Generate a link to the indicator:
-        alert_output['opencti']['indicator_link'] = url.removesuffix('graphql') + 'dashboard/observations/indicators/{0}'.format(indicators[0]['id'])
-        # Simplify object lists for indicator labels and kill chain phases:
-        simplify_objectlist(alert_output['opencti']['indicator'], listKey = 'objectLabel', valueKey = 'value', newKey = 'labels')
-        simplify_objectlist(alert_output['opencti']['indicator'], listKey = 'killChainPhases', valueKey = 'kill_chain_name', newKey = 'killChainPhases')
-        # Remove the original list of objects:
-        del alert_output['opencti']['indicators']
-
-        # Add source information to the original alert (naming convention
-        # from official VirusTotal integration):
-        alert_output['opencti']['source'] = {}
-        alert_output['opencti']['source']['alert_id'] = alert['id']
-        if 'syscheck' in alert:
-            alert_output['opencti']['source']['file'] = alert['syscheck']['path']
-            alert_output['opencti']['source']['md5'] = alert['syscheck']['md5_after']
-            alert_output['opencti']['source']['sha1'] = alert['syscheck']['sha1_after']
-        if 'data' in alert:
-            for key in ['in_iface', 'src_ip', 'src_mac', 'src_port', 'dest_ip', 'dst_mac', 'dest_port', 'proto', 'app_proto']:
-                if key in alert['data']:
-                    alert_output['opencti']['source'][key] = alert['data'][key]
-            if 'alert' in alert['data']:
-                alert_output['opencti']['source']['alert'] = {}
-                for key in ['action', 'category', 'signature', 'signature_id']:
-                    if key in alert['data']['alert']:
-                        alert_output['opencti']['source']['alert'][key] = alert['data']['alert'][key]
-
-        # Send event, after removing all nulls, empty lists and objects, and
-        # empty strings:
-        send_event(remove_empties(alert_output), alert['agent'])
+    return new_alerts
 
 if __name__ == '__main__':
     try:
