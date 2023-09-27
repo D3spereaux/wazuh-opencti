@@ -588,7 +588,7 @@ def query_opencti(alert, url, token):
             'indicator_link': indicator_link(indicator),
             'query_key': filter_key,
             'query_values': ';'.join(ind_filter),
-            'event_type': 'indicator_pattern_match',
+            'event_type': 'indicator_pattern_match' if indicator['pattern'] == ind_filter else 'indicator_partial_pattern_match',
             }}
         add_context(alert, new_alert)
         new_alerts.append(remove_empties(new_alert))

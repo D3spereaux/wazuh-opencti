@@ -39,7 +39,8 @@ The logic is as follows:
   *indicator_pattern_match* is created. A maximum of three alerts are created
   (configurable by modifying the *max_ind_alerts* variable, and a maximum of 10
   indicators are returned by the query. Indicators are sorted by !revoked,
-  detection, score, confidence and valid\_until.
+  detection, score, confidence and valid\_until. If the indicator only matches
+  partially, the event type will be *indicator_partial_pattern_match*.
 - For every observable that matches (either by *value* or *hashes_SHA256*,
   depending on type of observable), an alert is created if the
   observable has an indicator related to it. Only one indicator is included,
@@ -171,6 +172,14 @@ in your setup):
       <if_sid>100210</if_sid>
       <field name="opencti.event_type">observable_with_related_indicator</field>
       <description>OpenCTI: IoC possibly found in threat intel (related): $(opencti.related.indicator.name)</description>
+      <options>no_full_log</options>
+      <group>opencti,opencti_alert,</group>
+   </rule>
+
+   <rule id="100215" level="10">
+      <if_sid>100210</if_sid>
+      <field name="opencti.event_type">indicator_partial_pattern_match</field>
+      <description>OpenCTI: IoC possibly found in threat intel: $(opencti.indicator.name)</description>
       <options>no_full_log</options>
       <group>opencti,opencti_alert,</group>
    </rule>
