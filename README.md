@@ -37,17 +37,18 @@ The logic is as follows:
   '275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f'* or
   *[domain-name:value = 'example.org'*), an alert of type
   *indicator_pattern_match* is created. A maximum of three alerts are created
-  (configurable by modifying the *max_ind_alerts* variable, and a maximum of 10
-  indicators are returned by the query. Indicators are sorted by !revoked,
-  detection, score, confidence and valid\_until. If the indicator only matches
-  partially, the event type will be *indicator_partial_pattern_match*.
+  (configurable by modifying the *max_ind_alerts* variable), and a maximum of 10
+  indicators are returned by the query for processing and filtering. Indicators
+  are sorted by !revoked, detection, score, confidence and valid\_until. If the
+  indicator only matches partially, the event type will be
+  *indicator_partial_pattern_match*.
 - For every observable that matches (either by *value* or *hashes_SHA256*,
-  depending on type of observable), an alert is created if the
+  depending on the type of observable), an alert is created if the
   observable has an indicator related to it. Only one indicator is included,
   and they are sorted like mentioned above before picking the first one. The
   alert\_type is *observable_with_indicator*. A maximum of two alerts are created
-  (configurable by modifying the *max_obs_alerts* variable, and a maximum of 10
-  observables are returned by the query.
+  (configurable by modifying the *max_obs_alerts* variable), and a maximum of
+  10 observables are returned by the query.
 - If the observable is related to other observables (IP addresses and domain
   names), and those observables have indicators, the related indicator is
   included in the event. If the observable only has related indicators, the
@@ -97,8 +98,13 @@ note that 4.3.9 doesn't even have basic rules that cover all of the sysmon
 events. You may need to add rules for sysmon event 16–25. Event 22–25 is used
 by this integration.
 
-Example rule for logging all DNS queries on Windows so that the queries and
-their results can be looked up in OpenCTI:
+All monitored directories and files through syscheck will be inspected without
+further configuration (as long as "syscheck" is part of *<group>* as described
+earlier), but DNS queries will have to be manually configured to be logged and
+subsequently look up by this integration. If you do not already have a rule
+that logs DNS queries, use the following examples as guidance:
+
+On Windows (sysmon):
 ```xml
 <group name="sysmon,sysmon_eid22_detections,windows,">
    <rule id="100140" level="3">
@@ -108,8 +114,7 @@ their results can be looked up in OpenCTI:
 </group>
 ```
 
-DNS queries on Linux can be logged using packetbeat and an event like the
-following:
+On Linux (using packetbeat):
 ```xml
 <group name="packetbeat,ids">
    <rule id="101000" level="0">
@@ -198,7 +203,7 @@ name objects.
 
 In order to test that the integration works, create an observable in OpenCTI
 with a SHA256 hash that matches a file you will later create or move in Windows
-or Linux.  Then create an indicator (wazuh-opencti only creates alerts if an
+or Linux. Then create an indicator (wazuh-opencti only creates alerts if an
 observable has an indicator tied to it). Depending om your syscheck setup, put
 the file with the matching hash in a monitored directory and wait for the alert
 to be created. If you don't have a real-time syscheck setup yet, consider
