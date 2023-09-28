@@ -122,7 +122,9 @@ def format_dns_results(results):
         # Extract only A/AAAA records (and discard the empty strings):
         results = list(filter(len, dns_results_regex.findall(results)))
         # Convert IPv4-mapped IPv6 to IPv4:
-        return list(map(lambda x: unmap_ipv6(ipaddress.ip_address(x)).exploded, results))
+        results = list(map(lambda x: unmap_ipv6(ipaddress.ip_address(x)).exploded, results))
+        # Keep only global addresses:
+        return list(filter(lambda x: ipaddress.ip_address(x).is_global, results))
     except ValueError:
         return []
 
@@ -586,7 +588,7 @@ def query_opencti(alert, url, token):
             'indicator_link': indicator_link(indicator),
             'query_key': filter_key,
             'query_values': ';'.join(ind_filter),
-            'event_type': 'indicator_pattern_match',
+            'event_type': 'indicator_pattern_match' if indicator['pattern'] == ind_filter else 'indicator_partial_pattern_match',
             }}
         add_context(alert, new_alert)
         new_alerts.append(remove_empties(new_alert))
