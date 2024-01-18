@@ -277,7 +277,7 @@ def ind_ip_pattern(string):
 
 def query_opencti(alert, url, token):
     # The OpenCTI graphql query is filtering on a key and a list of values. By
-    # default, this key is "value", unless set to "hashes_SHA256":
+    # default, this key is "value", unless set to "hashes.SHA256":
     filter_key='value'
     groups = alert['rule']['groups']
 
@@ -289,7 +289,7 @@ def query_opencti(alert, url, token):
         # For any sysmon event that provides a sha256 hash (matches the group
         # name regex):
         if any(True for _ in filter(sha256_sysmon_event_regex.match, groups)):
-            filter_key='hashes_SHA256'
+            filter_key='hashes.SHA256'
             # It is not a 100 % guaranteed that there is a (valid) sha256 hash
             # present in the metadata. Quit if no hash is found:
             match = regex_file_hash.search(alert['data']['win']['eventdata']['hashes'])
@@ -328,13 +328,13 @@ def query_opencti(alert, url, token):
             ind_filter = [f"[domain-name:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), results))
         # Look up sha256 hashes for files added to the system or files that have been modified:
         elif 'syscheck_file' in groups and any(x in groups for x in ['syscheck_entry_added', 'syscheck_entry_modified']):
-            filter_key = 'hashes_SHA256'
+            filter_key = 'hashes.SHA256'
             filter_values = [alert['syscheck']['sha256_after']]
             ind_filter = [f"[file:hashes.'SHA-256' = '{filter_values[0]}']"]
         # Look up sha256 hashes in columns of any osqueries:
         # Currently, only osquery_file is defined in wazuh_manager.conf, but add 'osquery' for future use(?):
         elif any(x in groups for x in ['osquery', 'osquery_file']):
-            filter_key = 'hashes_SHA256'
+            filter_key = 'hashes.SHA256'
             filter_values = [alert['data']['osquery']['columns']['sha256']]
             ind_filter = [f"[file:hashes.'SHA-256' = '{filter_values[0]}']"]
         # Nothing to do:
@@ -443,7 +443,7 @@ def query_opencti(alert, url, token):
               globalCount
             }
 
-            query IoCs($obs: [StixCyberObservablesFiltering], $ind: [IndicatorsFiltering]) {
+            query IoCs($obs: FilterGroup, $ind: FilterGroup) {
               indicators(filters: $ind, first: 10) {
                 edges {
                   node {
@@ -542,11 +542,19 @@ def query_opencti(alert, url, token):
               }
             }
             ''' , 'variables': {
-                    'obs': [{'key': filter_key, 'values': filter_values}],
-                    'ind': [
-                        {'key': 'pattern_type', 'values': ['stix']},
-                        {'key': 'pattern', 'values': ind_filter},
+                    'obs': {
+                        "mode": "or",
+                        "filterGroups": [],
+                        "filters": [{'key': filter_key, 'values': filter_values}]
+                    },
+                    'ind': {
+                        "mode": "or",
+                        "filterGroups": [],
+                        "filters": [
+                            {'key': 'pattern_type', 'values': ['stix']},
+                            {'key': 'pattern', 'values': ind_filter},
                         ]
+                    }
                     }}
     #debug('# Query:')
     #debug(api_json_body)
