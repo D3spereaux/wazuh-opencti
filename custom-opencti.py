@@ -545,14 +545,14 @@ def query_opencti(alert, url, token):
                     'obs': {
                         "mode": "or",
                         "filterGroups": [],
-                        "filters": [{'key': filter_key, 'values': filter_values}]
+                        "filters": [{"key": filter_key, "values": filter_values}]
                     },
                     'ind': {
-                        "mode": "or",
+                        "mode": "and",
                         "filterGroups": [],
                         "filters": [
-                            {'key': 'pattern_type', 'values': ['stix']},
-                            {'key': 'pattern', 'values': ind_filter},
+                            {"key": "pattern_type", "values": ["stix"]},
+                            {"mode": "or", "key": "pattern", "values": ind_filter},
                         ]
                     }
                     }}
