@@ -99,9 +99,16 @@ def remove_empties(value):
 # {'objectLabel': {'edges': [{'node': {'value': 'cryptbot'}}, {'node': {'value': 'exe'}}]}}
 # →
 # {'labels:': ['cryptbot', 'exe']}
+# {'objectLabel': [{'value': 'cryptbot'}, {'value': 'exe'}]}
+# →
+# {'labels:': ['cryptbot', 'exe']}
 def simplify_objectlist(output, listKey, valueKey, newKey):
-    edges = output[listKey]['edges']
-    output[newKey] = [key[valueKey] for edge in edges for _, key in edge.items()]
+    if 'edges' in output[listKey]:
+        edges = output[listKey]['edges']
+        output[newKey] = [key[valueKey] for edge in edges for _, key in edge.items()]
+    else:
+        output[newKey] = [key[valueKey] for key in output[listKey]]
+
     if newKey != listKey:
         # Delete objectLabels (array of objects) now that we have just the names:
         del output[listKey]
