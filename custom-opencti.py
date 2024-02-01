@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright Andreas Misje 2023, 2022 Aurora Networks Managed Services 
+# Copyright Andreas Misje 2024, 2022 Aurora Networks Managed Services
 # See https://github.com/misje/wazuh-opencti for documentation
 #
 # This program is free software; you can redistribute it
