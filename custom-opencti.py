@@ -366,11 +366,7 @@ def query_opencti(alert, url, token):
             '''
             fragment Labels on StixCoreObject {
               objectLabel {
-                edges {
-                  node {
-                    value
-                  }
-                }
+                value
               }
             }
 
@@ -419,11 +415,7 @@ def query_opencti(alert, url, token):
               pattern
               ...Labels
               killChainPhases {
-                edges {
-                  node {
-                    kill_chain_name
-                  }
-                }
+                kill_chain_name
               }
             }
 
