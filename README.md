@@ -56,9 +56,9 @@ The logic is as follows:
 
 ## Requirements
 
-* An OpenCTI instance (version 5.12 or higher) up and running
-  * Older versions are supported, but you need to revert the changes in #11 in
-	 order to support the older graphql filter syntax.
+* An OpenCTI instance (version 5.12.24 or higher) up and running
+  * Older versions are supported, but you need to revert the changes in #13/#11
+    and/or #15 in order to support the older graphql filter syntax.
 * A read-only OpenCTI API token suitable for querying data (*Access knowledge*
   \+ *Access exploration*(?))
 
