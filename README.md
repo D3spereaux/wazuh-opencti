@@ -17,6 +17,7 @@ wazuh-opencti operates on
 - IP addresses (IPv4/IPv6)
 - Domain names (like DNS queries)
 - Hostnames (like DNS queries)
+- URLs (found in arguments in audited commands)
 
 and inspects events from sysmon, syscheck, suricata and osquery. The script can
 easily be extended to match other types of events as well.
@@ -27,6 +28,7 @@ The integration will only inspect events whose *rule.groups* matches
 - syscheck\_file
 - osquery
 - osquery\_file
+- audit\_command
 
 The logic is as follows:
 
@@ -237,6 +239,7 @@ integration doesn't fail and return an exit value of 1.
  sysmon\_process-anomalies | win.eventdata.hashes |
  ids | dest\_ip, destip, src\_ip, srcip, dns.question.name, dns.question.answers |
  osquery, osquery\_file | osquery.columns.sha256 |
+ audit\_command | execve.a0, execve.a1, … |
  
 ## Customisation
 

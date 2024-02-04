@@ -257,6 +257,11 @@ def add_context(source_event, event):
                 for key in ['queryName', 'queryResults', 'image']:
                     if key in source_event['data']['win']['eventdata']:
                         event['opencti']['source'][key] = source_event['data']['win']['eventdata'][key]
+        if 'audit' in source_event['data'] and 'execve' in source_event['data']['audit']:
+            event['opencti']['source']['execve'] = ' '.join(source_event['data']['audit']['execve'][key] for key in sorted(source_event['data']['audit']['execve'].keys()))
+            for key in ['success', 'key', 'uid', 'gid', 'euid', 'egid', 'exe', 'exit', 'pid']:
+                if key in source_event['data']['audit']:
+                    event['opencti']['source'][key] = source_event['data']['audit'][key]
 
 def send_event(msg, agent = None):
     if not agent or agent['id'] == '000':
@@ -350,6 +355,10 @@ def query_opencti(alert, url, token):
             filter_key = 'hashes.SHA256'
             filter_values = [alert['data']['osquery']['columns']['sha256']]
             ind_filter = [f"[file:hashes.'SHA-256' = '{filter_values[0]}']"]
+        elif 'audit_command' in groups:
+            # Extract any command line arguments that looks vaguely like a URL (starts with 'http'):
+            filter_values = [val for val in alert['data']['audit']['execve'].values() if val.startswith('http')]
+            ind_filter = list(map(lambda x: f"[url:value = 'x']", filter_values))
         # Nothing to do:
         else:
             sys.exit()
@@ -511,6 +520,23 @@ def query_opencti(alert, url, token):
                       }
                     }
                     ... on Hostname {
+                      value
+                      stixCoreRelationships(
+                        toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname"]
+                      ) {
+                        edges {
+                          node {
+                            type: toType
+                            relationship_type
+                            related: to {
+                              ...AddrRelation
+                              ...NameRelation
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on Url {
                       value
                       stixCoreRelationships(
                         toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname"]
