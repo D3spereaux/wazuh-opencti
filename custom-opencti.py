@@ -329,7 +329,7 @@ def query_opencti(alert, url, token):
                 # Look up either dest or source IP, whichever is public:
                 filter_values = [next(filter(lambda x: x and ipaddress.ip_address(x).is_global, [oneof('dest_ip', 'dstip', within=alert['data']), oneof('src_ip', 'srcip', within=alert['data'])]), None)]
                 ind_filter = [ind_ip_pattern(filter_values[0])] if filter_values else None
-            if not filter_values:
+            if not all(filter_values):
                 sys.exit()
         # Look up domain names in DNS queries (sysmon event 22), along with the
         # results (if they're IPv4/IPv6 addresses (A/AAAA records)):
