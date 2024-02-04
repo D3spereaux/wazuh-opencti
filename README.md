@@ -16,6 +16,8 @@ wazuh-opencti operates on
 - SHA256 hashes (typically from files)
 - IP addresses (IPv4/IPv6)
 - Domain names (like DNS queries)
+- Hostnames (like DNS queries)
+- URLs (found in arguments in audited commands)
 
 and inspects events from sysmon, syscheck, suricata and osquery. The script can
 easily be extended to match other types of events as well.
@@ -26,6 +28,7 @@ The integration will only inspect events whose *rule.groups* matches
 - syscheck\_file
 - osquery
 - osquery\_file
+- audit\_command
 
 The logic is as follows:
 
@@ -77,7 +80,7 @@ Add an entry like the following to an `<ossec_config>` block:
 ```xml
   <integration>
      <name>custom-opencti</name>
-     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,sysmon_eid22_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies</group>
+     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,sysmon_eid22_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies,audit_command</group>
      <alert_format>json</alert_format>
      <api_key>REPLACE-ME-WITH-A-VALID-TOKEN</api_key>
      <hook_url>https://my.opencti.location/graphql</hook_url>
@@ -170,7 +173,7 @@ in your setup):
    <rule id="100213" level="12">
       <if_sid>100210</if_sid>
       <field name="opencti.event_type">observable_with_indicator</field>
-      <description>OpenCTI: IoC found in threat intel: $(opencti.indicator.observable_value)</description>
+      <description>OpenCTI: IoC found in threat intel: $(opencti.observable_value)</description>
       <options>no_full_log</options>
       <group>opencti,opencti_alert,</group>
    </rule>
@@ -234,8 +237,9 @@ integration doesn't fail and return an exit value of 1.
  sysmon\_event\_24, sysmon\_eid24\_detections | win.eventdata.hashes |
  sysmon\_event\_25, sysmon\_eid25\_detections | win.eventdata.hashes |
  sysmon\_process-anomalies | win.eventdata.hashes |
- ids | dest\_ip, src\_ip, dns.question.name, dns.question.answers |
+ ids | dest\_ip, destip, src\_ip, srcip, dns.question.name, dns.question.answers |
  osquery, osquery\_file | osquery.columns.sha256 |
+ audit\_command | execve.a0, execve.a1, … |
  
 ## Customisation
 
