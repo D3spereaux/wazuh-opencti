@@ -215,6 +215,7 @@ def relationship_with_indicators(node):
                 related.append(dict(
                     id=relationship['node']['related']['id'],
                     type=relationship['node']['type'],
+                    relationship=relationship['node']['relationship_type'],
                     value=relationship['node']['related']['value'],
                     # Create a list of the individual node objects in indicator edges:
                     indicator = modify_indicator(next(iter(sort_indicators(list(map(lambda x:x['node'], relationship['node']['related']['indicators']['edges'])))), None)),
@@ -319,7 +320,7 @@ def query_opencti(alert, url, token):
             if packetbeat_dns(alert):
                 addrs = filter_packetbeat_dns(alert['data']['dns']['answers']) if 'answers' in alert['data']['dns'] else []
                 filter_values = [alert['data']['dns']['question']['name']] + addrs
-                ind_filter = [f"[domain-name:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), addrs))
+                ind_filter = [f"[domain-name:value = '{filter_values[0]}']", f"[hostname:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), addrs))
             else:
                 # Look up either dest or source IP, whichever is public:
                 filter_values = [next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)]
@@ -332,7 +333,7 @@ def query_opencti(alert, url, token):
             query = alert['data']['win']['eventdata']['queryName']
             results = format_dns_results(alert['data']['win']['eventdata']['queryResults'])
             filter_values = [query] + results
-            ind_filter = [f"[domain-name:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), results))
+            ind_filter = [f"[domain-name:value = '{filter_values[0]}']", f"[hostname:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), results))
         # Look up sha256 hashes for files added to the system or files that have been modified:
         elif 'syscheck_file' in groups and any(x in groups for x in ['syscheck_entry_added', 'syscheck_entry_modified']):
             filter_key = 'hashes.SHA256'
@@ -372,6 +373,7 @@ def query_opencti(alert, url, token):
 
             fragment Object on StixCoreObject {
               id
+              type: entity_type
               created_at
               updated_at
               createdBy {
@@ -394,7 +396,6 @@ def query_opencti(alert, url, token):
               externalReferences {
                 edges {
                   node {
-                    source_name
                     url
                   }
                 }
@@ -442,6 +443,32 @@ def query_opencti(alert, url, token):
               globalCount
             }
 
+            fragment NameRelation on StixObjectOrStixRelationshipOrCreator {
+              ... on DomainName {
+                id
+                value
+                ...Indicators
+              }
+              ... on Hostname {
+                id
+                value
+                ...Indicators
+              }
+            }
+
+            fragment AddrRelation on StixObjectOrStixRelationshipOrCreator {
+              ... on IPv4Addr {
+                id
+                value
+                ...Indicators
+              }
+              ... on IPv6Addr {
+                id
+                value
+                ...Indicators
+              }
+            }
+
             query IoCs($obs: FilterGroup, $ind: FilterGroup) {
               indicators(filters: $ind, first: 10) {
                 edges {
@@ -453,72 +480,26 @@ def query_opencti(alert, url, token):
                   ...PageInfo
                 }
               }
-
               stixCyberObservables(filters: $obs, first: 10) {
                 edges {
                   node {
                     ...Object
-                    entity_type
                     observable_value
                     x_opencti_description
                     x_opencti_score
                     ...Indicators
                     ... on DomainName {
                       value
-                      stixCoreRelationships(toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name"]) {
+                      stixCoreRelationships(
+                        toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname"]
+                      ) {
                         edges {
                           node {
                             type: toType
+                            relationship_type
                             related: to {
-                              ... on IPv4Addr {
-                                id
-                                value
-                                ...Indicators
-                              }
-                              ... on IPv6Addr {
-                                id
-                                value
-                                ...Indicators
-                              }
-                              ... on DomainName {
-                                id
-                                value
-                                ...Indicators
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    ... on IPv4Addr {
-                      value
-                      stixCoreRelationships(fromTypes: ["Domain-Name"]) {
-                        edges {
-                          node {
-                            type: fromType
-                            related: from {
-                              ... on DomainName {
-                                id
-                                value
-                                ...Indicators
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    ... on IPv6Addr {
-                      value
-                      stixCoreRelationships(fromTypes: ["Domain-Name"]) {
-                        edges {
-                          node {
-                            type: fromType
-                            related: from {
-                              ... on DomainName {
-                                id
-                                value
-                                ...Indicators
-                              }
+                              ...AddrRelation
+                              ...NameRelation
                             }
                           }
                         }
@@ -526,6 +507,48 @@ def query_opencti(alert, url, token):
                     }
                     ... on Hostname {
                       value
+                      stixCoreRelationships(
+                        toTypes: ["IPv4-Addr", "IPv6-Addr", "Domain-Name", "Hostname"]
+                      ) {
+                        edges {
+                          node {
+                            type: toType
+                            relationship_type
+                            related: to {
+                              ...AddrRelation
+                              ...NameRelation
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on IPv4Addr {
+                      value
+                      stixCoreRelationships(fromTypes: ["Domain-Name", "Hostname"]) {
+                        edges {
+                          node {
+                            type: fromType
+                            relationship_type
+                            related: from {
+                              ...NameRelation
+                            }
+                          }
+                        }
+                      }
+                    }
+                    ... on IPv6Addr {
+                      value
+                      stixCoreRelationships(fromTypes: ["Domain-Name", "Hostname"]) {
+                        edges {
+                          node {
+                            type: fromType
+                            relationship_type
+                            related: from {
+                              ...NameRelation
+                            }
+                          }
+                        }
+                      }
                     }
                     ... on StixFile {
                       extensions
@@ -595,7 +618,7 @@ def query_opencti(alert, url, token):
             'indicator_link': indicator_link(indicator),
             'query_key': filter_key,
             'query_values': ';'.join(ind_filter),
-            'event_type': 'indicator_pattern_match' if indicator['pattern'] == ind_filter else 'indicator_partial_pattern_match',
+            'event_type': 'indicator_pattern_match' if indicator['pattern'] in ind_filter else 'indicator_partial_pattern_match',
             }}
         add_context(alert, new_alert)
         new_alerts.append(remove_empties(new_alert))
