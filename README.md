@@ -80,7 +80,7 @@ Add an entry like the following to an `<ossec_config>` block:
 ```xml
   <integration>
      <name>custom-opencti</name>
-     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,sysmon_eid22_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies</group>
+     <group>sysmon_eid1_detections,sysmon_eid3_detections,sysmon_eid7_detections,sysmon_eid22_detections,syscheck_file,osquery_file,ids,sysmon_process-anomalies,audit_command</group>
      <alert_format>json</alert_format>
      <api_key>REPLACE-ME-WITH-A-VALID-TOKEN</api_key>
      <hook_url>https://my.opencti.location/graphql</hook_url>
