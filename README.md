@@ -173,7 +173,7 @@ in your setup):
    <rule id="100213" level="12">
       <if_sid>100210</if_sid>
       <field name="opencti.event_type">observable_with_indicator</field>
-      <description>OpenCTI: IoC found in threat intel: $(opencti.indicator.observable_value)</description>
+      <description>OpenCTI: IoC found in threat intel: $(opencti.observable_value)</description>
       <options>no_full_log</options>
       <group>opencti,opencti_alert,</group>
    </rule>
