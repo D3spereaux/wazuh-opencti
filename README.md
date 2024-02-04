@@ -16,6 +16,7 @@ wazuh-opencti operates on
 - SHA256 hashes (typically from files)
 - IP addresses (IPv4/IPv6)
 - Domain names (like DNS queries)
+- Hostnames (like DNS queries)
 
 and inspects events from sysmon, syscheck, suricata and osquery. The script can
 easily be extended to match other types of events as well.
