@@ -359,6 +359,8 @@ def query_opencti(alert, url, token):
             # Extract any command line arguments that looks vaguely like a URL (starts with 'http'):
             filter_values = [val for val in alert['data']['audit']['execve'].values() if val.startswith('http')]
             ind_filter = list(map(lambda x: f"[url:value = 'x']", filter_values))
+            if not filter_values:
+                sys.exit()
         # Nothing to do:
         else:
             sys.exit()
