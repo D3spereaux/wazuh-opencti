@@ -239,7 +239,7 @@ def add_context(source_event, event):
         event['opencti']['source']['sha1'] = source_event['syscheck']['sha1_after']
         event['opencti']['source']['sha256'] = source_event['syscheck']['sha256_after']
     if 'data' in source_event:
-        for key in ['in_iface', 'src_ip', 'src_mac', 'src_port', 'dest_ip', 'dst_mac', 'dest_port', 'proto', 'app_proto']:
+        for key in ['in_iface', 'srcintf', 'src_ip', 'srcip', 'src_mac', 'srcmac', 'src_port', 'srcport', 'dest_ip', 'dstip', 'dst_mac', 'dstmac', 'dest_port', 'dstport', 'dstintf', 'proto', 'app_proto']:
             if key in source_event['data']:
                 event['opencti']['source'][key] = source_event['data'][key]
         if packetbeat_dns(source_event):
@@ -283,6 +283,10 @@ def ind_ip_pattern(string):
     else:
         return f"[ipv4-addr:value = '{string}']"
 
+# Return the value of the first key argument that exists in within:
+def oneof(*keys, within):
+    return next((within[key] for key in keys if key in within), None)
+
 def query_opencti(alert, url, token):
     # The OpenCTI graphql query is filtering on a key and a list of values. By
     # default, this key is "value", unless set to "hashes.SHA256":
@@ -323,7 +327,7 @@ def query_opencti(alert, url, token):
                 ind_filter = [f"[domain-name:value = '{filter_values[0]}']", f"[hostname:value = '{filter_values[0]}']"] + list(map(lambda a: ind_ip_pattern(a), addrs))
             else:
                 # Look up either dest or source IP, whichever is public:
-                filter_values = [next(filter(lambda x: ipaddress.ip_address(x).is_global, [alert['data']['dest_ip'], alert['data']['src_ip']]), None)]
+                filter_values = [next(filter(lambda x: x and ipaddress.ip_address(x).is_global, [oneof('dest_ip', 'dstip', within=alert['data']), oneof('src_ip', 'srcip', within=alert['data'])]), None)]
                 ind_filter = [ind_ip_pattern(filter_values[0])] if filter_values else None
             if not filter_values:
                 sys.exit()

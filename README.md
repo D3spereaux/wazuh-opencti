@@ -234,7 +234,7 @@ integration doesn't fail and return an exit value of 1.
  sysmon\_event\_24, sysmon\_eid24\_detections | win.eventdata.hashes |
  sysmon\_event\_25, sysmon\_eid25\_detections | win.eventdata.hashes |
  sysmon\_process-anomalies | win.eventdata.hashes |
- ids | dest\_ip, src\_ip, dns.question.name, dns.question.answers |
+ ids | dest\_ip, destip, src\_ip, srcip, dns.question.name, dns.question.answers |
  osquery, osquery\_file | osquery.columns.sha256 |
  
 ## Customisation
