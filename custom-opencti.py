@@ -233,6 +233,7 @@ def add_context(source_event, event):
     # from official VirusTotal integration):
     event['opencti']['source'] = {}
     event['opencti']['source']['alert_id'] = source_event['id']
+    event['opencti']['source']['rule_id'] = source_event['rule']['id']
     if 'syscheck' in source_event:
         event['opencti']['source']['file'] = source_event['syscheck']['path']
         event['opencti']['source']['md5'] = source_event['syscheck']['md5_after']
