@@ -384,4 +384,5 @@ is included.
 ### Real-time Threat Detection (DNS & IPv4) with Telegram Alerts
 
 Below is a PoC integration where alerts from Wazuh (Suricata) are enriched via OpenCTI. If a domain name or IPv4 address matches an indicator, OpenCTI sends a detailed alert straight to Telegram — helping the SOC team act faster and smarter.
+
 ![image](https://github.com/user-attachments/assets/78cb369c-e621-4e42-b99c-39a8297d07f6)
