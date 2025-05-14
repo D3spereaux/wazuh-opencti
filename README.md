@@ -10,7 +10,8 @@ If the metadata is found in any STIX indicator, the integration will create a
 Wazuh alert with plenty of metadata from the OpenCTI
 [observable](https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_p49j1fwoxldc)
 and
-[indicator](https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_muftrcpnf89v).
+[indicator](https://docs.oasis-open.org/cti/stix/v2.1/os/stix-v2.1-os.html#_muftrcpnf89v)
+then it's will send alert to Telegram.
 
 wazuh-opencti operates on
 - SHA256 hashes (typically from files)
@@ -67,7 +68,7 @@ The logic is as follows:
 
 ## Installation
 
-Copy the two *custom-opencti* files into your Wazuh manager integrations
+Copy the two *custom-opencti* and *custom-telegram* files into your Wazuh manager integrations
 directory, */var/ossec/integrations*. If you're using docker, this will be the
 root directory in the *wazuh_integrations* volume.
 
@@ -84,6 +85,14 @@ Add an entry like the following to an `<ossec_config>` block:
      <alert_format>json</alert_format>
      <api_key>REPLACE-ME-WITH-A-VALID-TOKEN</api_key>
      <hook_url>https://my.opencti.location/graphql</hook_url>
+  </integration>
+
+  <integration>
+      <name>custom-telegram</name>
+      <level>10</level>
+      <api_key>CHATID</api_key>
+      <hook_url>BOT_TOKEN</hook_url>
+      <alert_format>json</alert_format>
   </integration>
 ```
 
