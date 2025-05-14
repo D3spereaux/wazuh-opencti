@@ -25,7 +25,7 @@ easily be extended to match other types of events as well.
 
 The integration will only inspect events whose *rule.groups* matches
 - sysmon events 1, 3, 6, 7, 15, 22, 23, 24, 25
-- ids
+- ids (https://documentation.wazuh.com/current/proof-of-concept-guide/integrate-network-ids-suricata.html)
 - syscheck\_file
 - osquery
 - osquery\_file
