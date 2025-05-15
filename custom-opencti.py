@@ -431,7 +431,7 @@ def query_opencti(alert, url, token):
             else:
                 sys.exit()
         # Sysmon event 3 contains IP addresses, which will be queried:
-        elif any(True for _ in filter(sysmon_event3_regex.match, groups)):
+        elif any (True for _ in filter(sysmon_event3_regex.match, groups)):
             filter_values = [alert['data']['win']['eventdata']['destinationIp']]
             ind_filter = [ind_ip_pattern(filter_values[0])]
             if not ipaddress.ip_address(filter_values[0]).is_global:
@@ -441,13 +441,13 @@ def query_opencti(alert, url, token):
         # group. These keys are probably used by other decoders as well:
         elif 'ids' in groups:
             # Check if DNS data exists in the alert
-            if 'dns' in alert['data'] and 'query' in alert['data']['dns'] and alert['data']['dns']['query']:
+             if 'dns' in alert['data'] and 'query' in alert['data']['dns'] and alert ['data']['dns']['query']:
                 # Extract rrname from DNS query
-                rrname = alert['data']['dns']['query'][0].get('rrname', '')
+                rrname = alert['data']['dns']['query'][0].get('rrname ', '')
                 logger.debug(f'Extract rrname to check: {rrname}')
                 # Look up either dest or source IP, whichever is public
                 public_ip = next(filter(lambda x: x and ipaddress.ip_address(x).is_global, [
-                    oneof('dest_ip', 'dstip', within=alert['data']),
+                    oneof('dest_ip ', 'dstip', within=alert['data']),
                     oneof('src_ip', 'srcip', within=alert['data'])
                 ]), None)
                 filter_values = [public_ip, rrname] if public_ip else [rrname]
